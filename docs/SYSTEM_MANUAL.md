@@ -74,6 +74,7 @@
 | `duration_minutes` | Integer | Default 30, Not Null | ระยะเวลาการรักษา (นาที) |
 | `treatment_type` | String(100) | Not Null | หัตถการที่นัด (ขูดหินปูน, ถอนฟัน, อุดฟัน ฯลฯ) |
 | `status` | String(20) | Default 'SCHEDULED' | สถานะ: `SCHEDULED`, `COMPLETED`, `CANCELLED` |
+| `reminder_status` | String(20) | Default 'PENDING' | สถานะแจ้งเตือน: `PENDING`, `SENT`, `CONFIRMED` |
 | `notes` | Text | Nullable | บันทึกเพิ่มเติมของคิวนัด |
 
 ### 2.4 ตาราง `treatment_records` (เวชระเบียนบันทึกการรักษา)
@@ -136,3 +137,23 @@ $$Start_A < End_B \quad \text{AND} \quad End_A > Start_B$$
 | `PATCH`| `/api/v1/appointments/{id}/status` | All Authenticated | ปรับสถานะนัดหมาย (SCHEDULED, COMPLETED, CANCELLED) | 200, 404 |
 | `POST` | `/api/v1/treatments` | DENTIST | บันทึกประวัติการรักษาและระบุซี่ฟัน | 201, 403, 404 |
 | `GET` | `/api/v1/treatments/patient/{id}` | All Authenticated | ดูประวัติการรักษาทั้งหมดของคนไข้ | 200, 404 |
+| `GET` | `/api/v1/reminders/upcoming` | RECEPTIONIST, ADMIN | ดึงคิวนัดหมายล่วงหน้าและสร้างข้อความแจ้งเตือน SMS/LINE | 200, 403 |
+| `PATCH`| `/api/v1/appointments/{id}/reminder-status` | RECEPTIONIST, ADMIN | ปรับสถานะการเตือน (PENDING, SENT, CONFIRMED) | 200, 403, 404 |
+
+---
+
+## 6. ระบบเตรียมข้อความแจ้งเตือนนัดหมาย (Appointment Reminder Service)
+
+ระบบถูกออกแบบมาเพื่อลดอัตราการไม่มาตามนัด (No-show rate) ของคนไข้ โดยมีหลักการทำงานดังนี้:
+
+1. **การดึงคิวล่วงหน้า (Target Date Filtering):**
+   - ค่าเริ่มต้นจะค้นหาคิวนัดหมายของ "วันพรุ่งนี้" (`date.today() + 1 day`) ที่มีสถานะ `SCHEDULED`
+   - สามารถระบุวันที่อื่น หรือกรองสถานะการส่งข้อความ (`reminder_status`) ได้
+2. **แม่แบบข้อความแจ้งเตือนอัตโนมัติ (Template Generator):**
+   - ข้อความถูกประกอบขึ้นอย่างเป็นระบบ:
+     `เรียนคุณ {patient_name} {CLINIC_NAME} ขอแจ้งเตือนนัดหมาย {treatment_type} กับ {dentist_name} ในวันที่ {DD/MM/YYYY} เวลา {HH:MM} น. หากต้องการเลื่อนนัดกรุณาโทร {CLINIC_PHONE}`
+3. **วงจรสถานะการแจ้งเตือน (Reminder Status Lifecycle):**
+   - `PENDING` (รอดำเนินการ - ค่าเริ่มต้นเมื่อจองนัด)
+   - `SENT` (ส่งข้อความไปยังคนไข้แล้ว)
+   - `CONFIRMED` (คนไข้ตอบรับยืนยันเวลาเรียบร้อยแล้ว)
+

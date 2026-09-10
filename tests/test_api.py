@@ -355,3 +355,103 @@ def test_treatment_record_creation_and_history(client):
     history = history_res.json()
     assert len(history) >= 1
     assert history[0]["tooth_number"] == "18"
+
+
+# --- 7. Appointment Reminder Service Tests ---
+def test_appointment_reminder_service(client):
+    rec_token = get_token(client, "receptionist_test")
+    dentist_token = get_token(client, "dentist_somchai")
+
+    # 7.1 Dentist role should be forbidden from accessing reminders (receptionist/admin only)
+    forbidden_res = client.get(
+        "/api/v1/reminders/upcoming",
+        headers={"Authorization": f"Bearer {dentist_token}"},
+    )
+    assert forbidden_res.status_code == 403
+
+    # 7.2 Create a patient and schedule an appointment for a specific target date
+    patient_res = client.post(
+        "/api/v1/patients",
+        json={
+            "first_name": "ธนกร",
+            "last_name": "มั่งมี",
+            "phone_number": "0861112233",
+            "date_of_birth": "1988-12-10",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert patient_res.status_code == 201
+    patient = patient_res.json()
+
+    dentists_res = client.get("/api/v1/dentists", headers={"Authorization": f"Bearer {rec_token}"})
+    somchai = next(d for d in dentists_res.json() if "สมชาย" in d["full_name"])
+
+    target_dt = datetime(2026, 12, 1, 14, 0, 0)
+    target_date_str = target_dt.strftime("%Y-%m-%d")
+
+    appt_res = client.post(
+        "/api/v1/appointments",
+        json={
+            "patient_id": patient["id"],
+            "dentist_id": somchai["id"],
+            "appointment_time": target_dt.isoformat(),
+            "duration_minutes": 45,
+            "treatment_type": "ตรวจสุขภาพฟันและขูดหินปูน",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert appt_res.status_code == 201
+    appt = appt_res.json()
+    assert appt["reminder_status"] == "PENDING"
+
+    # 7.3 Fetch upcoming reminders for target date
+    reminders_res = client.get(
+        f"/api/v1/reminders/upcoming?date={target_date_str}",
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert reminders_res.status_code == 200
+    reminders = reminders_res.json()
+    assert len(reminders) >= 1
+    my_reminder = next(r for r in reminders if r["appointment_id"] == appt["id"])
+
+    # Verify generated reminder message
+    assert "เรียนคุณ ธนกร มั่งมี" in my_reminder["message_text"]
+    assert "ตรวจสุขภาพฟันและขูดหินปูน" in my_reminder["message_text"]
+    assert "ทพ. สมชาย ใจดี" in my_reminder["message_text"]
+    assert "14:00" in my_reminder["message_text"]
+    assert "02-123-4567" in my_reminder["message_text"]
+    assert my_reminder["phone_number"] == "0861112233"
+    assert my_reminder["reminder_status"] == "PENDING"
+
+    # 7.4 Update reminder status to SENT
+    patch_res = client.patch(
+        f"/api/v1/appointments/{appt['id']}/reminder-status",
+        json={"reminder_status": "SENT"},
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["reminder_status"] == "SENT"
+
+    # 7.5 Filter reminders by status=SENT
+    sent_reminders = client.get(
+        f"/api/v1/reminders/upcoming?date={target_date_str}&reminder_status=SENT",
+        headers={"Authorization": f"Bearer {rec_token}"},
+    ).json()
+    assert any(r["appointment_id"] == appt["id"] for r in sent_reminders)
+
+    # 7.6 Filter reminders by status=PENDING (should no longer include appt)
+    pending_reminders = client.get(
+        f"/api/v1/reminders/upcoming?date={target_date_str}&reminder_status=PENDING",
+        headers={"Authorization": f"Bearer {rec_token}"},
+    ).json()
+    assert not any(r["appointment_id"] == appt["id"] for r in pending_reminders)
+
+    # 7.7 Update status to CONFIRMED
+    confirm_res = client.patch(
+        f"/api/v1/appointments/{appt['id']}/reminder-status",
+        json={"reminder_status": "CONFIRMED"},
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert confirm_res.status_code == 200
+    assert confirm_res.json()["reminder_status"] == "CONFIRMED"
+

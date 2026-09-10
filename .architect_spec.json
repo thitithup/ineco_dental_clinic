@@ -74,6 +74,7 @@
         { "name": "duration_minutes", "type": "INTEGER", "constraints": "DEFAULT 30, NOT NULL" },
         { "name": "treatment_type", "type": "VARCHAR(100)", "constraints": "NOT NULL" },
         { "name": "status", "type": "VARCHAR(20)", "constraints": "DEFAULT 'SCHEDULED', NOT NULL" },
+        { "name": "reminder_status", "type": "VARCHAR(20)", "constraints": "DEFAULT 'PENDING', NOT NULL" },
         { "name": "notes", "type": "TEXT", "constraints": "NULLABLE" },
         { "name": "created_at", "type": "DATETIME", "constraints": "DEFAULT CURRENT_TIMESTAMP, NOT NULL" }
       ]
@@ -134,12 +135,29 @@
       "auth_required": true,
       "roles": ["DENTIST", "ADMIN"],
       "status_code": 201
+    },
+    {
+      "name": "Get Upcoming Reminders",
+      "method": "GET",
+      "path": "/api/v1/reminders/upcoming?date=2026-10-15&reminder_status=PENDING",
+      "auth_required": true,
+      "roles": ["RECEPTIONIST", "ADMIN"],
+      "status_code": 200
+    },
+    {
+      "name": "Update Reminder Status",
+      "method": "PATCH",
+      "path": "/api/v1/appointments/{id}/reminder-status",
+      "auth_required": true,
+      "roles": ["RECEPTIONIST", "ADMIN"],
+      "status_code": 200
     }
   ],
   "business_rules": [
     "No Double-Booking: An appointment must not overlap with any existing SCHEDULED appointment for the same dentist.",
     "Drug allergy warnings must always be surfaced prominently when viewing a patient.",
     "Only dentists can create or sign treatment records.",
-    "Patients phone numbers must be unique across the clinic database."
+    "Patients phone numbers must be unique across the clinic database.",
+    "Appointment Reminder Service: Allows receptionists to fetch upcoming scheduled appointments, generate personalized SMS/LINE reminder messages, and track status (PENDING, SENT, CONFIRMED)."
   ]
 }

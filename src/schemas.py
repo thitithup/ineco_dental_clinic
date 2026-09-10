@@ -81,6 +81,10 @@ class AppointmentStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(SCHEDULED|COMPLETED|CANCELLED)$")
 
 
+class ReminderStatusUpdate(BaseModel):
+    reminder_status: str = Field(..., pattern="^(PENDING|SENT|CONFIRMED)$")
+
+
 class AppointmentResponse(BaseModel):
     id: int
     patient_id: int
@@ -89,10 +93,25 @@ class AppointmentResponse(BaseModel):
     duration_minutes: int
     treatment_type: str
     status: str
+    reminder_status: str = "PENDING"
     notes: Optional[str] = None
     created_at: datetime
     patient: Optional[PatientResponse] = None
     dentist: Optional[UserResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReminderMessageResponse(BaseModel):
+    appointment_id: int
+    patient_id: int
+    patient_name: str
+    phone_number: str
+    dentist_name: str
+    appointment_time: datetime
+    treatment_type: str
+    reminder_status: str
+    message_text: str
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -6,6 +6,7 @@ from sqlalchemy import or_, and_
 from src.models import User, Patient, Appointment, TreatmentRecord
 from src.schemas import PatientCreate, PatientUpdate, AppointmentCreate, TreatmentRecordCreate
 from src.auth import get_password_hash
+from src.config import settings
 
 
 # --- User & Dentist Operations ---
@@ -240,3 +241,77 @@ def get_treatment_records_by_patient(db: Session, patient_id: int) -> List[Treat
     return db.query(TreatmentRecord).filter(
         TreatmentRecord.patient_id == patient_id
     ).order_by(TreatmentRecord.performed_at.desc()).all()
+
+
+# --- Appointment Reminder Operations ---
+def format_reminder_message(appointment: Appointment) -> str:
+    """Format SMS/LINE personalized reminder message string."""
+    patient_name = f"{appointment.patient.first_name} {appointment.patient.last_name}" if appointment.patient else "คนไข้"
+    dentist_name = appointment.dentist.full_name if appointment.dentist else "ทันตแพทย์"
+    appt_dt = appointment.appointment_time
+    date_str = appt_dt.strftime("%d/%m/%Y")
+    time_str = appt_dt.strftime("%H:%M")
+
+    return (
+        f"เรียนคุณ {patient_name} {settings.CLINIC_NAME} ขอแจ้งเตือนนัดหมาย "
+        f"{appointment.treatment_type} กับ {dentist_name} ในวันที่ {date_str} เวลา {time_str} น. "
+        f"หากต้องการเลื่อนนัดกรุณาโทร {settings.CLINIC_PHONE}"
+    )
+
+
+def get_upcoming_reminders(
+    db: Session,
+    target_date: Optional[date] = None,
+    reminder_status: Optional[str] = None
+) -> List[dict]:
+    """
+    Retrieve upcoming scheduled appointments and generate ready-to-send reminder messages.
+    If target_date is not provided, defaults to tomorrow.
+    """
+    if target_date is None:
+        target_date = date.today() + timedelta(days=1)
+
+    day_start = datetime.combine(target_date, datetime.min.time())
+    day_end = datetime.combine(target_date, datetime.max.time())
+
+    query = db.query(Appointment).filter(
+        Appointment.status == "SCHEDULED",
+        Appointment.appointment_time >= day_start,
+        Appointment.appointment_time <= day_end
+    )
+
+    if reminder_status:
+        query = query.filter(Appointment.reminder_status == reminder_status)
+
+    appointments = query.order_by(Appointment.appointment_time).all()
+
+    reminders = []
+    for appt in appointments:
+        reminders.append({
+            "appointment_id": appt.id,
+            "patient_id": appt.patient_id,
+            "patient_name": f"{appt.patient.first_name} {appt.patient.last_name}" if appt.patient else "Unknown",
+            "phone_number": appt.patient.phone_number if appt.patient else "",
+            "dentist_name": appt.dentist.full_name if appt.dentist else "Unknown",
+            "appointment_time": appt.appointment_time,
+            "treatment_type": appt.treatment_type,
+            "reminder_status": appt.reminder_status,
+            "message_text": format_reminder_message(appt)
+        })
+
+    return reminders
+
+
+def update_appointment_reminder_status(
+    db: Session,
+    appointment_id: int,
+    reminder_status: str
+) -> Optional[Appointment]:
+    """Update appointment reminder status (PENDING, SENT, CONFIRMED)."""
+    appt = get_appointment_by_id(db, appointment_id)
+    if not appt:
+        return None
+    appt.reminder_status = reminder_status
+    db.commit()
+    db.refresh(appt)
+    return appt

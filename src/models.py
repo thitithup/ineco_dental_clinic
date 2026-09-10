@@ -56,6 +56,7 @@ class Appointment(Base):
     duration_minutes = Column(Integer, default=30, nullable=False)
     treatment_type = Column(String(100), nullable=False)  # e.g., Cleaning, Extraction, Filling, Root Canal
     status = Column(String(20), default="SCHEDULED", nullable=False)  # SCHEDULED, COMPLETED, CANCELLED
+    reminder_status = Column(String(20), default="PENDING", nullable=False)  # PENDING, SENT, CONFIRMED
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 

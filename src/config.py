@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     ENVIRONMENT: str = "development"
+    CLINIC_NAME: str = "คลินิกทันตกรรม Ineco Dental"
+    CLINIC_PHONE: str = "02-123-4567"
 
     model_config = SettingsConfigDict(
         env_file=".env",

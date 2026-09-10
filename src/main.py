@@ -21,6 +21,8 @@ from src.schemas import (
     AppointmentCreate,
     AppointmentResponse,
     AppointmentStatusUpdate,
+    ReminderStatusUpdate,
+    ReminderMessageResponse,
     TreatmentRecordCreate,
     TreatmentRecordResponse,
 )
@@ -439,3 +441,53 @@ def get_patient_treatment_history(
             detail=f"Patient ID {patient_id} not found.",
         )
     return crud.get_treatment_records_by_patient(db, patient_id)
+
+
+# --- Appointment Reminder Service (SMS / LINE) ---
+@app.get(
+    "/api/v1/reminders/upcoming",
+    response_model=List[ReminderMessageResponse],
+    tags=["Reminders"],
+)
+def get_upcoming_reminders(
+    target_date: Optional[date] = Query(None, alias="date", description="Target appointment date (defaults to tomorrow)"),
+    reminder_status: Optional[str] = Query(None, pattern="^(PENDING|SENT|CONFIRMED)$", description="Filter by reminder status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["RECEPTIONIST", "ADMIN"])),
+):
+    """
+    Retrieve upcoming appointments and generate personalized SMS/LINE reminder messages.
+    Defaults to appointments scheduled for tomorrow.
+    """
+    return crud.get_upcoming_reminders(
+        db=db,
+        target_date=target_date,
+        reminder_status=reminder_status,
+    )
+
+
+@app.patch(
+    "/api/v1/appointments/{appointment_id}/reminder-status",
+    response_model=AppointmentResponse,
+    responses={404: {"model": StandardErrorResponse}},
+    tags=["Reminders"],
+)
+def update_appointment_reminder_status(
+    appointment_id: int,
+    status_update: ReminderStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["RECEPTIONIST", "ADMIN"])),
+):
+    """Update appointment reminder status (PENDING, SENT, CONFIRMED)."""
+    appt = crud.update_appointment_reminder_status(
+        db=db,
+        appointment_id=appointment_id,
+        reminder_status=status_update.reminder_status,
+    )
+    if not appt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Appointment ID {appointment_id} not found.",
+        )
+    return appt
+
