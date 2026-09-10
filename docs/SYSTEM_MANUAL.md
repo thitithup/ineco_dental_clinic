@@ -163,3 +163,75 @@ $$Start_A < End_B \quad \text{AND} \quad End_A > Start_B$$
    - `SENT` (ส่งข้อความไปยังคนไข้แล้ว)
    - `CONFIRMED` (คนไข้ตอบรับยืนยันเวลาเรียบร้อยแล้ว)
 
+---
+
+## 7. ขอบเขตการทดสอบและผลลัพธ์ (Testing Scope & Verification Results)
+
+ระบบได้รับการทดสอบความถูกต้องอย่างเข้มงวดตามมาตรฐาน **Automated Integration & Edge-Case Testing** โดยแยกสภาพแวดล้อมออกจากฐานข้อมูลจริงอย่างสมบูรณ์
+
+### 7.1 กลยุทธ์การทดสอบ (Testing Strategy & Environment Isolation)
+- **In-Memory Test Database:** ชุดทดสอบทั้งหมดรันบน SQLite หน่วยความจำเสมือน (`sqlite:///:memory:` ร่วมกับ `StaticPool`) ข้อมูลจำลองจะถูกสร้างและทำลายทิ้งทันทีเมื่อสิ้นสุดการรัน ไม่มีการเขียนทับหรือปะปนกับฐานข้อมูล `dental_clinic.db` จริงของคลินิก
+- **Isolated Virtual Environment:** รันการทดสอบภายใต้ Virtual Environment ประจำโปรเจกต์ (`.venv`)
+- **Automated CI/CD Quality Gate:** รันการทดสอบ 15 เคสโดยอัตโนมัติบน GitHub Actions ทุกครั้งที่มีการ Commit / Pull Request โค้ดใหม่
+
+---
+
+### 7.2 ตารางสรุปขอบเขตเคสทดสอบ (15 Test Cases Matrix)
+
+| หมวดหมู่ | ชื่อฟังก์ชันทดสอบ | ประเภทการทดสอบ | วัตถุประสงค์และการตรวจสอบ | ผลลัพธ์ |
+|---|---|---|---|:---:|
+| **System** | `test_health_check` | Health & Liveness | ตรวจสอบสถานะความพร้อมของ API Service (`/health`) | **PASS** |
+| **Security** | `test_login_invalid_credentials` | Negative Security | ปฏิเสธการล็อกอินด้วยรหัสผ่านผิดทันทีด้วย `401 Unauthorized` | **PASS** |
+| **Security** | `test_login_and_me_profile` | Authentication | ออก Token สำเร็จและดึงข้อมูลโปรไฟล์ผู้ใช้ตนเอง (`/me`) | **PASS** |
+| **Directory** | `test_list_dentists` | Functional | ดึงรายชื่อทันตแพทย์ทั้งหมดพร้อมสาขาความเชี่ยวชาญ | **PASS** |
+| **CRM** | `test_patient_registration_and_search` | Functional & Integrity | ลงทะเบียนคนไข้, ป้องกันเบอร์ซ้ำ (`409`), ค้นหาด่วนด้วยชื่อและเบอร์ | **PASS** |
+| **RBAC** | `test_dentist_cannot_register_patient_role_enforcement` | Access Control | ป้องกันทันตแพทย์ลงทะเบียนคนไข้ตามหลัก Least Privilege (`403`) | **PASS** |
+| **Scheduling** | `test_appointment_booking_and_anti_collision` | Core Business Logic | ตรวจจับคิวนัดซ้อนทับของหมอคนเดิม (`409`), จองคิวต่อเนื่อง (`201`), จองหมอคนละท่านในเวลาเดียวกัน (`201`) | **PASS** |
+| **Clinical** | `test_treatment_record_creation_and_history` | Business Automation | เคาน์เตอร์ห้ามบันทึกการรักษา (`403`), หมอบันทึกระบุซี่ฟัน (`201`), อัปเดตสถานะนัดหมายเป็น `COMPLETED` อัตโนมัติ | **PASS** |
+| **Reminder** | `test_appointment_reminder_service` | Communication Service | หมอเข้าถึงไม่ได้ (`403`), ดึงคิวนัดล่วงหน้า, สร้างข้อความ SMS/LINE อัตโนมัติ, ปรับสถานะ `PENDING` $\rightarrow$ `SENT` $\rightarrow$ `CONFIRMED` | **PASS** |
+| **Data Validation**| `test_patient_dob_in_future_rejected` | Boundary Validation | ปฏิเสธวันเกิดคนไข้ในอนาคตหรือวันปัจจุบัน (`422 Unprocessable Entity`) | **PASS** |
+| **Data Validation**| `test_patient_invalid_phone_format_rejected` | Regex Validation | ปฏิเสธเบอร์โทรศัพท์ที่ไม่ได้รูปแบบไทย 9-10 หลัก (`422 Unprocessable Entity`) | **PASS** |
+| **Temporal** | `test_appointment_in_the_past_rejected` | Temporal Integrity | ปฏิเสธการจองคิวนัดหมายย้อนหลังในอดีต (`422 Unprocessable Entity`) | **PASS** |
+| **Temporal** | `test_appointment_outside_operating_hours_rejected` | Business Hours | ปฏิเสธการจองคิวนอกเวลาทำการ 09:00 - 20:00 น. (`422 Unprocessable Entity`) | **PASS** |
+| **Scheduling** | `test_patient_double_booking_collision_rejected` | Dual Anti-Collision | ป้องกันคนไข้คนเดิมจองนัดซ้อนทับข้ามหมอท่านอื่นในเวลาเดียวกัน (`409 Conflict`) | **PASS** |
+| **Security** | `test_expired_and_malformed_jwt_token_rejected` | Token Degradation | ปฏิเสธ Token ปลอมแปลง หรือ Token ที่หมดอายุการใช้งาน (`401 Unauthorized`) | **PASS** |
+
+---
+
+### 7.3 บันทึกผลการรันการทดสอบจริง (Execution Log Output)
+
+```bash
+$ .venv/bin/pytest tests/ -v
+============================= test session starts ==============================
+platform darwin -- Python 3.12.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/tititab/Documents/Codes/Software House/dental_clinic
+plugins: anyio-4.15.1
+collected 15 items
+
+tests/test_api.py::test_health_check PASSED                              [  6%]
+tests/test_api.py::test_login_invalid_credentials PASSED                 [ 13%]
+tests/test_api.py::test_login_and_me_profile PASSED                      [ 20%]
+tests/test_api.py::test_list_dentists PASSED                             [ 26%]
+tests/test_api.py::test_patient_registration_and_search PASSED           [ 33%]
+tests/test_api.py::test_dentist_cannot_register_patient_role_enforcement PASSED [ 40%]
+tests/test_api.py::test_appointment_booking_and_anti_collision PASSED    [ 46%]
+tests/test_api.py::test_treatment_record_creation_and_history PASSED     [ 53%]
+tests/test_api.py::test_appointment_reminder_service PASSED              [ 60%]
+tests/test_api.py::test_patient_dob_in_future_rejected PASSED            [ 66%]
+tests/test_api.py::test_patient_invalid_phone_format_rejected PASSED     [ 73%]
+tests/test_api.py::test_appointment_in_the_past_rejected PASSED          [ 80%]
+tests/test_api.py::test_appointment_outside_operating_hours_rejected PASSED [ 86%]
+tests/test_api.py::test_patient_double_booking_collision_rejected PASSED [ 93%]
+tests/test_api.py::test_expired_and_malformed_jwt_token_rejected PASSED  [100%]
+
+======================== 15 passed in 4.48s ========================
+```
+
+---
+
+### 7.4 สถานะการรันบนระบบ CI/CD (GitHub Actions)
+- **Workflow:** `.github/workflows/ci.yml`
+- **สถานะล่าสุด:** [![CI Status](https://img.shields.io/badge/CI%2FCD-Passed%20100%25-brightgreen)](https://github.com/thitithup/ineco_dental_clinic/actions)
+- **อัตราความสำเร็จ:** 100% (15/15 Passed ทั้ง Unit/Integration Tests และ Docker Image Build)
+
+
