@@ -1,0 +1,145 @@
+{
+  "project_name": "dental-clinic-management-system",
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "framework": "FastAPI",
+    "orm_or_db_driver": "SQLAlchemy 2.0+",
+    "database": "SQLite (file-based or in-memory for testing)"
+  },
+  "architecture_summary": "A comprehensive, PDPA-compliant Dental Clinic Management REST API featuring Role-Based Access Control (Receptionist and Dentist), Patient CRM with Allergy tracking, Conflict-free Appointment Scheduling with time-slot collision validation, and Treatment History records.",
+  "directory_structure": [
+    "src/config.py",
+    "src/database.py",
+    "src/models.py",
+    "src/schemas.py",
+    "src/auth.py",
+    "src/crud.py",
+    "src/main.py",
+    "tests/test_api.py",
+    "docs/SYSTEM_MANUAL.md",
+    "docs/USER_MANUAL.md"
+  ],
+  "env_variables": [
+    { "key": "DATABASE_URL", "description": "SQLite database connection string", "example": "sqlite:///./dental_clinic.db", "required": true },
+    { "key": "SECRET_KEY", "description": "Secret key for JWT token encryption", "example": "ineco-dental-super-secret-key-9999", "required": true },
+    { "key": "ACCESS_TOKEN_EXPIRE_MINUTES", "description": "Token validity duration", "example": "480", "required": true }
+  ],
+  "auth_scheme": {
+    "type": "JWT_Bearer",
+    "header": "Authorization: Bearer <token>",
+    "roles": ["RECEPTIONIST", "DENTIST", "ADMIN"]
+  },
+  "standard_error_response": {
+    "status": "error",
+    "error_code": "STRING_IDENTIFIER",
+    "message": "Human readable error message",
+    "details": {}
+  },
+  "entities": [
+    {
+      "name": "User",
+      "table_name": "users",
+      "fields": [
+        { "name": "id", "type": "INTEGER", "constraints": "PRIMARY KEY, AUTOINCREMENT" },
+        { "name": "username", "type": "VARCHAR(50)", "constraints": "UNIQUE, NOT NULL, INDEX" },
+        { "name": "password_hash", "type": "VARCHAR(255)", "constraints": "NOT NULL" },
+        { "name": "full_name", "type": "VARCHAR(100)", "constraints": "NOT NULL" },
+        { "name": "role", "type": "VARCHAR(20)", "constraints": "NOT NULL" },
+        { "name": "specialty", "type": "VARCHAR(100)", "constraints": "NULLABLE" },
+        { "name": "created_at", "type": "DATETIME", "constraints": "DEFAULT CURRENT_TIMESTAMP, NOT NULL" }
+      ]
+    },
+    {
+      "name": "Patient",
+      "table_name": "patients",
+      "fields": [
+        { "name": "id", "type": "INTEGER", "constraints": "PRIMARY KEY, AUTOINCREMENT" },
+        { "name": "first_name", "type": "VARCHAR(50)", "constraints": "NOT NULL, INDEX" },
+        { "name": "last_name", "type": "VARCHAR(50)", "constraints": "NOT NULL, INDEX" },
+        { "name": "phone_number", "type": "VARCHAR(20)", "constraints": "UNIQUE, NOT NULL, INDEX" },
+        { "name": "date_of_birth", "type": "DATE", "constraints": "NOT NULL" },
+        { "name": "medical_conditions", "type": "TEXT", "constraints": "NULLABLE" },
+        { "name": "drug_allergies", "type": "TEXT", "constraints": "NULLABLE" },
+        { "name": "created_at", "type": "DATETIME", "constraints": "DEFAULT CURRENT_TIMESTAMP, NOT NULL" }
+      ]
+    },
+    {
+      "name": "Appointment",
+      "table_name": "appointments",
+      "fields": [
+        { "name": "id", "type": "INTEGER", "constraints": "PRIMARY KEY, AUTOINCREMENT" },
+        { "name": "patient_id", "type": "INTEGER", "constraints": "FOREIGN KEY (patients.id), NOT NULL, INDEX" },
+        { "name": "dentist_id", "type": "INTEGER", "constraints": "FOREIGN KEY (users.id), NOT NULL, INDEX" },
+        { "name": "appointment_time", "type": "DATETIME", "constraints": "NOT NULL, INDEX" },
+        { "name": "duration_minutes", "type": "INTEGER", "constraints": "DEFAULT 30, NOT NULL" },
+        { "name": "treatment_type", "type": "VARCHAR(100)", "constraints": "NOT NULL" },
+        { "name": "status", "type": "VARCHAR(20)", "constraints": "DEFAULT 'SCHEDULED', NOT NULL" },
+        { "name": "notes", "type": "TEXT", "constraints": "NULLABLE" },
+        { "name": "created_at", "type": "DATETIME", "constraints": "DEFAULT CURRENT_TIMESTAMP, NOT NULL" }
+      ]
+    },
+    {
+      "name": "TreatmentRecord",
+      "table_name": "treatment_records",
+      "fields": [
+        { "name": "id", "type": "INTEGER", "constraints": "PRIMARY KEY, AUTOINCREMENT" },
+        { "name": "appointment_id", "type": "INTEGER", "constraints": "FOREIGN KEY (appointments.id), NULLABLE, INDEX" },
+        { "name": "patient_id", "type": "INTEGER", "constraints": "FOREIGN KEY (patients.id), NOT NULL, INDEX" },
+        { "name": "dentist_id", "type": "INTEGER", "constraints": "FOREIGN KEY (users.id), NOT NULL, INDEX" },
+        { "name": "tooth_number", "type": "VARCHAR(20)", "constraints": "NOT NULL" },
+        { "name": "treatment_details", "type": "TEXT", "constraints": "NOT NULL" },
+        { "name": "doctor_notes", "type": "TEXT", "constraints": "NULLABLE" },
+        { "name": "performed_at", "type": "DATETIME", "constraints": "DEFAULT CURRENT_TIMESTAMP, NOT NULL" }
+      ]
+    }
+  ],
+  "api_contracts": [
+    {
+      "name": "User Login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "auth_required": false,
+      "request_body": { "username": "reception01", "password": "SecurePassword123!" },
+      "response_body": { "access_token": "token_string", "token_type": "bearer", "role": "RECEPTIONIST" },
+      "status_code": 200
+    },
+    {
+      "name": "Register Patient",
+      "method": "POST",
+      "path": "/api/v1/patients",
+      "auth_required": true,
+      "roles": ["RECEPTIONIST", "ADMIN"],
+      "status_code": 201
+    },
+    {
+      "name": "Search Patients",
+      "method": "GET",
+      "path": "/api/v1/patients?query=0812345678",
+      "auth_required": true,
+      "roles": ["RECEPTIONIST", "DENTIST", "ADMIN"],
+      "status_code": 200
+    },
+    {
+      "name": "Book Appointment",
+      "method": "POST",
+      "path": "/api/v1/appointments",
+      "auth_required": true,
+      "roles": ["RECEPTIONIST", "ADMIN"],
+      "status_code": 201
+    },
+    {
+      "name": "Record Treatment",
+      "method": "POST",
+      "path": "/api/v1/treatments",
+      "auth_required": true,
+      "roles": ["DENTIST", "ADMIN"],
+      "status_code": 201
+    }
+  ],
+  "business_rules": [
+    "No Double-Booking: An appointment must not overlap with any existing SCHEDULED appointment for the same dentist.",
+    "Drug allergy warnings must always be surfaced prominently when viewing a patient.",
+    "Only dentists can create or sign treatment records.",
+    "Patients phone numbers must be unique across the clinic database."
+  ]
+}

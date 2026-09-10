@@ -1,0 +1,27 @@
+services:
+  dental_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dental_clinic_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////app/data/dental_clinic.db
+      - SECRET_KEY=ineco-dental-super-secret-production-key-9999
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=480
+      - ENVIRONMENT=production
+    volumes:
+      - dental_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  dental_data:
+    driver: local
