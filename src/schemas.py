@@ -1,6 +1,7 @@
-from datetime import datetime, date
+import re
+from datetime import datetime, date, timezone
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 class StandardErrorResponse(BaseModel):
@@ -44,6 +45,21 @@ class PatientCreate(BaseModel):
     medical_conditions: Optional[str] = None
     drug_allergies: Optional[str] = None
 
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        clean = v.strip().replace("-", "").replace(" ", "")
+        if not re.match(r"^0[0-9]{8,9}$", clean):
+            raise ValueError("Phone number must be a valid Thai telephone format (9-10 digits starting with 0)")
+        return clean
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def validate_dob(cls, v: date) -> date:
+        if v >= date.today():
+            raise ValueError("Date of birth cannot be today or in the future")
+        return v
+
 
 class PatientUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -52,6 +68,23 @@ class PatientUpdate(BaseModel):
     date_of_birth: Optional[date] = None
     medical_conditions: Optional[str] = None
     drug_allergies: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            clean = v.strip().replace("-", "").replace(" ", "")
+            if not re.match(r"^0[0-9]{8,9}$", clean):
+                raise ValueError("Phone number must be a valid Thai telephone format (9-10 digits starting with 0)")
+            return clean
+        return v
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def validate_dob(cls, v: Optional[date]) -> Optional[date]:
+        if v is not None and v >= date.today():
+            raise ValueError("Date of birth cannot be today or in the future")
+        return v
 
 
 class PatientResponse(BaseModel):
@@ -75,6 +108,17 @@ class AppointmentCreate(BaseModel):
     duration_minutes: int = Field(default=30, ge=15, le=240)
     treatment_type: str = Field(..., min_length=2)
     notes: Optional[str] = None
+
+    @field_validator("appointment_time")
+    @classmethod
+    def validate_appointment_time(cls, v: datetime) -> datetime:
+        now = datetime.now(v.tzinfo) if v.tzinfo else datetime.now()
+        if v < now:
+            raise ValueError("Appointment time cannot be scheduled in the past")
+
+        if v.hour < 9 or v.hour >= 20:
+            raise ValueError("Appointment must be scheduled during clinic operating hours (09:00 - 20:00)")
+        return v
 
 
 class AppointmentStatusUpdate(BaseModel):

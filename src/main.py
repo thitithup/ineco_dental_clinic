@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -103,7 +104,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "status": "error",
             "error_code": "VALIDATION_ERROR",
             "message": "Invalid request parameters",
-            "details": exc.errors(),
+            "details": jsonable_encoder(exc.errors()),
         },
     )
 
@@ -323,6 +324,22 @@ def schedule_appointment(
             detail=(
                 f"Dentist '{dentist.full_name}' already has an overlapping appointment "
                 f"at {appt_data.appointment_time.isoformat()} for duration {appt_data.duration_minutes} mins."
+            ),
+        )
+
+    # 4. Patient Collision Detection Check (Prevent double-booking patient)
+    is_patient_conflict = crud.check_patient_collision(
+        db=db,
+        patient_id=appt_data.patient_id,
+        start_time=appt_data.appointment_time,
+        duration_minutes=appt_data.duration_minutes,
+    )
+    if is_patient_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Patient '{patient.first_name} {patient.last_name}' already has an overlapping appointment "
+                f"scheduled at this time ({appt_data.appointment_time.isoformat()})."
             ),
         )
 

@@ -153,6 +153,44 @@ def check_dentist_collision(
     return False
 
 
+def check_patient_collision(
+    db: Session,
+    patient_id: int,
+    start_time: datetime,
+    duration_minutes: int,
+    exclude_appointment_id: Optional[int] = None
+) -> bool:
+    """
+    Check if a patient already has another active appointment at the overlapping time.
+    Prevents double-booking the same patient simultaneously across multiple dentists.
+    """
+    new_start = start_time
+    new_end = start_time + timedelta(minutes=duration_minutes)
+
+    window_start = new_start - timedelta(hours=12)
+    window_end = new_end + timedelta(hours=12)
+
+    query = db.query(Appointment).filter(
+        Appointment.patient_id == patient_id,
+        Appointment.status != "CANCELLED",
+        Appointment.appointment_time >= window_start,
+        Appointment.appointment_time <= window_end
+    )
+
+    if exclude_appointment_id:
+        query = query.filter(Appointment.id != exclude_appointment_id)
+
+    candidates = query.all()
+    for appt in candidates:
+        existing_start = appt.appointment_time
+        existing_end = existing_start + timedelta(minutes=appt.duration_minutes)
+
+        if new_start < existing_end and new_end > existing_start:
+            return True
+
+    return False
+
+
 def create_appointment(db: Session, appt_data: AppointmentCreate) -> Appointment:
     """Create a new appointment record."""
     appt = Appointment(

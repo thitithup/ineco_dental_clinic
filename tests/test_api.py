@@ -9,6 +9,7 @@ from src.database import Base, get_db
 from src.main import app
 from src.models import User
 from src import crud
+from src.auth import create_access_token
 
 # Setup in-memory SQLite for test isolation
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -276,11 +277,24 @@ def test_appointment_booking_and_anti_collision(client):
     )
     assert res_consecutive.status_code == 201
 
-    # 5.4 Book Dr. Kanya at the same overlapping time (10:15) -> Should succeed because different dentist
+    # 5.4 Book Dr. Kanya at the same time (10:15) for a DIFFERENT patient -> Succeeds because different dentist
+    p2_res = client.post(
+        "/api/v1/patients",
+        json={
+            "first_name": "ประสิทธิ์",
+            "last_name": "ใจดี",
+            "phone_number": "0819998877",
+            "date_of_birth": "1985-03-15",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert p2_res.status_code == 201
+    patient2_id = p2_res.json()["id"]
+
     res_other_dentist = client.post(
         "/api/v1/appointments",
         json={
-            "patient_id": patient_id,
+            "patient_id": patient2_id,
             "dentist_id": kanya["id"],
             "appointment_time": overlap_time.isoformat(),
             "duration_minutes": 30,
@@ -454,4 +468,160 @@ def test_appointment_reminder_service(client):
     )
     assert confirm_res.status_code == 200
     assert confirm_res.json()["reminder_status"] == "CONFIRMED"
+
+
+# --- 8. Comprehensive Edge-Case & Data Validation Tests ---
+def test_patient_dob_in_future_rejected(client):
+    """Ensure date of birth in the future or today is rejected (422 Unprocessable Entity)."""
+    rec_token = get_token(client, "receptionist_test")
+    future_date = (date.today() + timedelta(days=5)).isoformat()
+    res = client.post(
+        "/api/v1/patients",
+        json={
+            "first_name": "อนาคต",
+            "last_name": "ยังไม่เกิด",
+            "phone_number": "0891234567",
+            "date_of_birth": future_date,
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert res.status_code == 422
+    assert "Date of birth cannot be today or in the future" in str(res.json())
+
+
+def test_patient_invalid_phone_format_rejected(client):
+    """Ensure non-Thai phone number formats are rejected."""
+    rec_token = get_token(client, "receptionist_test")
+    for invalid_phone in ["1234567890", "abcdefghijk", "081234567x"]:
+        res = client.post(
+            "/api/v1/patients",
+            json={
+                "first_name": "ทดสอบ",
+                "last_name": "เบอร์ผิด",
+                "phone_number": invalid_phone,
+                "date_of_birth": "1995-01-01",
+            },
+            headers={"Authorization": f"Bearer {rec_token}"},
+        )
+        assert res.status_code == 422
+        assert "Phone number must be a valid Thai telephone format" in str(res.json())
+
+
+def test_appointment_in_the_past_rejected(client):
+    """Ensure appointments scheduled in the past are rejected."""
+    rec_token = get_token(client, "receptionist_test")
+    past_time = datetime(2020, 1, 1, 10, 0, 0).isoformat()
+    res = client.post(
+        "/api/v1/appointments",
+        json={
+            "patient_id": 1,
+            "dentist_id": 2,
+            "appointment_time": past_time,
+            "duration_minutes": 30,
+            "treatment_type": "ตรวจฟัน",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert res.status_code == 422
+    assert "Appointment time cannot be scheduled in the past" in str(res.json())
+
+
+def test_appointment_outside_operating_hours_rejected(client):
+    """Ensure appointments outside clinic hours (09:00 - 20:00) are rejected."""
+    rec_token = get_token(client, "receptionist_test")
+    early_time = datetime(2026, 11, 20, 3, 0, 0).isoformat()  # 03:00 AM
+    late_time = datetime(2026, 11, 20, 22, 0, 0).isoformat()  # 10:00 PM
+
+    for t in [early_time, late_time]:
+        res = client.post(
+            "/api/v1/appointments",
+            json={
+                "patient_id": 1,
+                "dentist_id": 2,
+                "appointment_time": t,
+                "duration_minutes": 30,
+                "treatment_type": "ตรวจฟัน",
+            },
+            headers={"Authorization": f"Bearer {rec_token}"},
+        )
+        assert res.status_code == 422
+        assert "clinic operating hours" in str(res.json())
+
+
+def test_patient_double_booking_collision_rejected(client):
+    """Ensure the SAME patient cannot have overlapping appointments across DIFFERENT dentists."""
+    rec_token = get_token(client, "receptionist_test")
+
+    dentists = client.get("/api/v1/dentists", headers={"Authorization": f"Bearer {rec_token}"}).json()
+    somchai = next(d for d in dentists if "สมชาย" in d["full_name"])
+    kanya = next(d for d in dentists if "กัญญา" in d["full_name"])
+
+    # Create distinct patient for this test
+    p_res = client.post(
+        "/api/v1/patients",
+        json={
+            "first_name": "คนไข้",
+            "last_name": "คิวชน",
+            "phone_number": "0898765432",
+            "date_of_birth": "1993-07-20",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert p_res.status_code == 201
+    patient_id = p_res.json()["id"]
+
+    # Book Dr. Somchai at 11:00 - 11:30
+    appt_time = datetime(2026, 11, 25, 11, 0, 0).isoformat()
+    res1 = client.post(
+        "/api/v1/appointments",
+        json={
+            "patient_id": patient_id,
+            "dentist_id": somchai["id"],
+            "appointment_time": appt_time,
+            "duration_minutes": 30,
+            "treatment_type": "จัดฟัน",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert res1.status_code == 201
+
+    # Attempt to book Dr. Kanya for the SAME patient at 11:15 (overlap)
+    overlap_time = datetime(2026, 11, 25, 11, 15, 0).isoformat()
+    res2 = client.post(
+        "/api/v1/appointments",
+        json={
+            "patient_id": patient_id,
+            "dentist_id": kanya["id"],
+            "appointment_time": overlap_time,
+            "duration_minutes": 30,
+            "treatment_type": "รักษารากฟัน",
+        },
+        headers={"Authorization": f"Bearer {rec_token}"},
+    )
+    assert res2.status_code == 409
+    assert "already has an overlapping appointment scheduled" in res2.json()["message"]
+
+
+def test_expired_and_malformed_jwt_token_rejected(client):
+    """Ensure malformed or expired JWT tokens are rejected with 401 Unauthorized."""
+    # Malformed token
+    res_malformed = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": "Bearer this.is.an.invalid.token"},
+    )
+    assert res_malformed.status_code == 401
+    assert res_malformed.json()["error_code"] == "UNAUTHORIZED"
+
+    # Expired token (created with negative expiration delta)
+    expired_token = create_access_token(
+        data={"sub": "receptionist_test", "role": "RECEPTIONIST"},
+        expires_delta=timedelta(minutes=-30)
+    )
+    res_expired = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {expired_token}"},
+    )
+    assert res_expired.status_code == 401
+    assert res_expired.json()["error_code"] == "UNAUTHORIZED"
+
 
